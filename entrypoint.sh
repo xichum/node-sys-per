@@ -4,11 +4,21 @@ set -e
 
 # ================== CONFIG ==================
 
+# Ports
 export T_PORT=${T_PORT:-""}
 export H_PORT=${H_PORT:-""}
 export R_PORT=${R_PORT:-""}
 
-# Core (V=Version, PRE=Tag Prefix)
+# Identity & Auth
+export S_ID=${S_ID:-""}
+export T_PASS=${T_PASS:-"admin"}
+export H_PASS=${H_PASS:-""}
+
+# Reality Settings
+export R_DOM=${R_DOM:-"www.nazhumi.com"}
+export R_DOM_P=${R_DOM_P:-""}
+
+# Core
 export BIN_V=${BIN_V:-""} 
 export ID_PRE=${ID_PRE:-"Srv"}
 export LOG_ON=${LOG_ON:-"false"}
@@ -47,9 +57,7 @@ get_v() {
   if [ -z "$v" ]; then echo "1.10.7"; else echo "$v"; fi
 }
 
-if [ -z "$BIN_V" ]; then
-  BIN_V=$(get_v)
-fi
+if [ -z "$BIN_V" ]; then BIN_V=$(get_v); fi
 
 AR_R=$(uname -m)
 case "${AR_R}" in
@@ -99,7 +107,12 @@ load_bin
 # ================== AUTH ==================
 
 U_FILE="${W_DIR}/u.dat"
-if [ -f "$U_FILE" ]; then
+
+# Priority: ENV > File > Generate
+if [ -n "$S_ID" ]; then
+  UUID="$S_ID"
+  echo "$UUID" > "$U_FILE"
+elif [ -f "$U_FILE" ]; then
   UUID=$(cat "$U_FILE")
 else
   UUID=$("$RUN_BIN" generate uuid 2>/dev/null)
@@ -111,6 +124,8 @@ else
   fi
   echo "$UUID" > "$U_FILE"
 fi
+
+if [ -z "$H_PASS" ]; then H_PASS="$UUID"; fi
 
 K_FILE="${W_DIR}/k.dat"
 if [ -f "$K_FILE" ]; then
@@ -176,7 +191,7 @@ if [ -n "$T_PORT" ] && [ "$T_PORT" != "0" ]; then
       "tag": "t-in",
       "listen": "::",
       "listen_port": $T_PORT,
-      "users": [{"uuid": "$UUID", "password": "admin"}],
+      "users": [{"uuid": "$UUID", "password": "$T_PASS"}],
       "congestion_control": "bbr",
       "tls": {"enabled": true, "alpn": ["h3"], "certificate_path": "$C_PEM", "key_path": "$K_PEM"}
     }
@@ -191,7 +206,7 @@ if [ -n "$H_PORT" ] && [ "$H_PORT" != "0" ]; then
       "tag": "h-in",
       "listen": "::",
       "listen_port": $H_PORT,
-      "users": [{"password": "$UUID"}],
+      "users": [{"password": "$H_PASS"}],
       "masquerade": "https://bing.com",
       "tls": {"enabled": true, "alpn": ["h3"], "certificate_path": "$C_PEM", "key_path": "$K_PEM"}
     }
@@ -209,10 +224,10 @@ if [ -n "$R_PORT" ] && [ "$R_PORT" != "0" ]; then
       "users": [{"uuid": "$UUID", "flow": "xtls-rprx-vision"}],
       "tls": {
         "enabled": true,
-        "server_name": "www.nazhumi.com",
+        "server_name": "$R_DOM",
         "reality": {
           "enabled": true,
-          "handshake": {"server": "www.nazhumi.com", "server_port": 443},
+          "handshake": {"server": "$R_DOM", "server_port": $R_DOM_P},
           "private_key": "$P_KEY",
           "short_id": [""]
         }
@@ -251,13 +266,13 @@ EXP="${W_DIR}/e.dat"
 > "$EXP"
 
 if [ -n "$T_PORT" ] && [ "$T_PORT" != "0" ]; then
-  echo "tuic://${UUID}:admin@${HIP}:${T_PORT}?sni=bing.com&alpn=h3&congestion_control=bbr&allowInsecure=1#${ID_PRE}-T" >> "$EXP"
+  echo "tuic://${UUID}:${T_PASS}@${HIP}:${T_PORT}?sni=bing.com&alpn=h3&congestion_control=bbr&allowInsecure=1#${ID_PRE}-T" >> "$EXP"
 fi
 if [ -n "$H_PORT" ] && [ "$H_PORT" != "0" ]; then
-  echo "hysteria2://${UUID}@${HIP}:${H_PORT}/?sni=bing.com&insecure=1#${ID_PRE}-H" >> "$EXP"
+  echo "hysteria2://${H_PASS}@${HIP}:${H_PORT}/?sni=bing.com&insecure=1#${ID_PRE}-H" >> "$EXP"
 fi
 if [ -n "$R_PORT" ] && [ "$R_PORT" != "0" ]; then
-  echo "vless://${UUID}@${HIP}:${R_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.nazhumi.com&fp=firefox&pbk=${PUB_K}&type=tcp#${ID_PRE}-R" >> "$EXP"
+  echo "vless://${UUID}@${HIP}:${R_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${R_DOM}&fp=firefox&pbk=${PUB_K}&type=tcp#${ID_PRE}-R" >> "$EXP"
 fi
 
 if [ -s "$EXP" ]; then
